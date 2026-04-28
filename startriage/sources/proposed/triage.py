@@ -27,10 +27,6 @@ _COLOR_RESET = "\033[0m"
 _BOX = "\u25a0"  # ■ BLACK SQUARE
 
 
-def _pkg_link(pkg: str, fmt: OutputFormat) -> str:
-    return hyperlink(_LP_SOURCE_URL.format(pkg=pkg), pkg, fmt)
-
-
 def _version_link(pkg: str, version: str, fmt: OutputFormat) -> str:
     if version == "-":
         return version
@@ -60,7 +56,7 @@ def _pad(hyperlinked: str, raw_text: str, width: int) -> str:
 def _notes(exc: MigrationExcuse, fmt: OutputFormat) -> str:
     parts: list[str] = []
     if exc.bugs:
-        parts.append("  ".join(_bug_link(b, fmt) for b in exc.bugs))
+        parts.append(" ".join(_bug_link(b, fmt) for b in exc.bugs))
     if exc.reasons:
         raw = f"[{', '.join(exc.reasons)}]"
         url = _EXCUSES_URL.format(pkg=exc.package)
@@ -73,7 +69,7 @@ def _print_terminal_table(excuses: list[MigrationExcuse], cfg: OutputConfig) -> 
     pkg_w = max(20, *(len(e.package) for e in excuses))
     old_new_w = max(
         15,
-        *(len(e.old_version) + 4 + len(e.new_version) for e in excuses),  # +4 for " → "
+        *(len(e.old_version) + 3 + len(e.new_version) for e in excuses),  # +3 for " → "
     )
 
     header = "  %-*s | %-*s | %-10s | %s" % (
@@ -89,14 +85,14 @@ def _print_terminal_table(excuses: list[MigrationExcuse], cfg: OutputConfig) -> 
     for exc in excuses:
         since_str = exc.in_proposed_since.strftime("%Y-%m-%d")
 
-        raw_pkg = truncate_string(exc.package, pkg_w)
-        pkg_cell = _pad(_pkg_link(exc.package, fmt), raw_pkg, pkg_w)
+        pkg_cell = hyperlink(
+            _LP_SOURCE_URL.format(pkg=exc.package), truncate_string(exc.package, pkg_w), fmt, pad_right=pkg_w
+        )
 
-        raw_old_new = f"{exc.old_version} \u2192 {exc.new_version}"
         old_new_cell = _pad(
             f"{_version_link(exc.package, exc.old_version, fmt)} \u2192 "
             f"{_version_link(exc.package, exc.new_version, fmt)}",
-            raw_old_new,
+            f"{exc.old_version} \u2192 {exc.new_version}",
             old_new_w,
         )
 
