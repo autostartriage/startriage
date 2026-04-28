@@ -37,5 +37,5 @@ apps:
 parts:
   startriage:
     plugin: python
-    source: https://github.com/ubuntu/startriage
+    source: .
     source-type: git
