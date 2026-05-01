@@ -131,13 +131,24 @@ class Task:
 
     @property
     @lru_cache(maxsize=None)  # noqa: B019
+    def _all_bug_tasks(self) -> list:
+        """All bug tasks for this bug, fetched once and cached.
+
+        Both Ubuntu tasks and tasks for other distributions/projects are
+        included.  Using this as the single source avoids iterating the LP
+        collection more than once.
+        """
+        return list(self.lp_task.bug.bug_tasks)
+
+    @property
+    @lru_cache(maxsize=None)  # noqa: B019
     def _sibling_tasks(self) -> dict[str, Any]:
         """All sibling tasks for this package across series -- cached.
 
         Order: devel first, then stable series newest-first (LP API order reversed).
         """
         siblings = {}
-        for lp_task in self.lp_task.bug.bug_tasks:
+        for lp_task in self._all_bug_tasks:
             parts = str(lp_task).split("/")
             if parts[4] != "ubuntu":
                 continue
