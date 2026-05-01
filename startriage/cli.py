@@ -46,10 +46,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="count", default=0, help="Increase logging verbosity (repeatable)"
     )
     parser.add_argument("-q", "--quiet", action="count", default=0, help="Reduce logging verbosity")
-    parser.add_argument(
-        "-o", "--open", action="store_true", dest="open_in_browser", help="Open items in web browser"
-    )
-    parser.add_argument("--fullurls", action="store_true", help="Show full URLs instead of hyperlinks")
 
     # Shared parent parser for subcommands that support --markdown output
     output_p = argparse.ArgumentParser(add_help=False)
@@ -64,6 +60,10 @@ def _build_parser() -> argparse.ArgumentParser:
         default=OutputFormat.TERMINAL,
         help="Output format (default: %(default)s)",
     )
+    output_p.add_argument(
+        "-o", "--open", action="store_true", dest="open_in_browser", help="Open items in web browser"
+    )
+    output_p.add_argument("--fullurls", action="store_true", help="Show full URLs instead of hyperlinks")
 
     taskfilter_p = argparse.ArgumentParser(add_help=False)
     interval_exclusive_group = taskfilter_p.add_mutually_exclusive_group()
@@ -81,7 +81,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     interval_exclusive_group.add_argument(
-        "-t",
+        "-d",
         "--triage-day",
         default=None,
         metavar="DAY",
@@ -151,7 +151,7 @@ GREEN = done
         "--expire-level2",
         type=int,
         metavar="DAYS",
-        help="Days to re-display ay old expiring bugs (level 2)",
+        help="Days to re-display old expiring bugs (level 2)",
     )
     triage_p.add_argument(
         "--extended",
@@ -252,6 +252,17 @@ def _filter_from_args(
     )
 
 
+def _outputcfg_from_args(args: argparse.Namespace, persistor: BugPersistor | None = None) -> OutputConfig:
+    return OutputConfig(
+        fmt=args.format,
+        out=sys.stdout,
+        open_in_browser=args.open_in_browser,
+        terminal_links=not args.fullurls,
+        markdown_path=Path(args.markdown) if args.markdown else None,
+        bug_persistor=persistor,
+    )
+
+
 def main() -> None:
     try:
         asyncio.run(_run())
@@ -287,15 +298,8 @@ async def _run_triage(args: argparse.Namespace, config: StarTriageConfig) -> Non
         general = general.model_copy(update={"proposed_min_age": args.proposed_min_age})
     config.general = general
 
-    output_cfg = OutputConfig(
-        fmt=args.format,
-        out=sys.stdout,
-        open_in_browser=args.open_in_browser,
-        terminal_links=not args.fullurls,
-        markdown_path=Path(args.markdown) if args.markdown else None,
-    )
+    output_cfg = _outputcfg_from_args(args)
     await run_triage(config, filter, output_cfg)
-
 
 async def _run_todo(args: argparse.Namespace, config: StarTriageConfig) -> None:
     if args.flag_recent is None and not args.subscribed:
@@ -310,14 +314,7 @@ async def _run_todo(args: argparse.Namespace, config: StarTriageConfig) -> None:
         no_save=args.no_save,
     )
 
-    output_cfg = OutputConfig(
-        fmt=args.format,
-        out=sys.stdout,
-        open_in_browser=args.open_in_browser,
-        terminal_links=not args.fullurls,
-        bug_persistor=BugPersistor(save_cfg),
-        markdown_path=Path(args.markdown) if args.markdown else None,
-    )
+    output_cfg = _outputcfg_from_args(args, BugPersistor(save_cfg))
 
     await run_todo(
         config,

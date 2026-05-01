@@ -37,7 +37,7 @@ startriage todo
 startriage todo --subscribed
 ```
 
-## Common Options
+## Triage Options
 
 | Option | Description |
 |--------|-------------|
