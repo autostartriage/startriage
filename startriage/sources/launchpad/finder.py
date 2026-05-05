@@ -73,13 +73,23 @@ def _search_tasks_all_series(distro, *args, **kwargs):
     return result.values()
 
 
+# Per-user events to ignore when computing last activity.
+# A bot listed here is only ignored for the specific whatchanged values given;
+# other events from the same account are still considered.
+_LP_IGNORE_EVENTS: dict[str, frozenset[str]] = {
+    "janitor": frozenset({"merge proposal linked"}),
+}
+
+
 def _last_activity_ours(task_obj, lp_user_links: set[str]) -> bool:
-    """Return True if the single most recent bug event was by a team member.
+    """Return True if the single most recent human bug event was by a team member.
 
     Considers both comments (bug.messages) and state/metadata changes
     (bug.activity) - LP provides no unified timeline, so the last item of
     each collection is compared and the more recent one wins.
 
+    Events listed in _LP_IGNORE_EVENTS for a given user are skipped so that
+    automated follow-ups to team actions do not hide our work.
     None person_link means an automated/system change — treated as external.
     """
     if not lp_user_links:
@@ -87,8 +97,12 @@ def _last_activity_ours(task_obj, lp_user_links: set[str]) -> bool:
 
     candidates: list[tuple[datetime, str | None]] = []
 
-    def _try_append(dt, person_obj) -> None:
+    def _try_append(dt, person_obj, whatchanged: str | None = None) -> None:
         try:
+            name = person_obj.name if person_obj else None
+            ignore = _LP_IGNORE_EVENTS.get(name) if name else None
+            if ignore and whatchanged and whatchanged in ignore:
+                return
             candidates.append((dt, person_obj.self_link if person_obj else None))
         except ClientError as exc:
             if exc.response["status"] != "410":  # user deleted
@@ -104,7 +118,7 @@ def _last_activity_ours(task_obj, lp_user_links: set[str]) -> bool:
     n_act = len(activity)
     if n_act > 0:
         entry = activity[n_act - 1]
-        _try_append(entry.datechanged, entry.person)
+        _try_append(entry.datechanged, entry.person, entry.whatchanged)
 
     if not candidates:
         return False
