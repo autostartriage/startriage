@@ -95,13 +95,15 @@ def _last_activity_ours(task_obj, lp_user_links: set[str]) -> bool:
                 raise
 
     msgs = task_obj.bug.messages
-    if msgs:
-        msg = msgs[-1]
+    n_msgs = len(msgs)
+    if n_msgs > 0:
+        msg = msgs[n_msgs - 1]
         _try_append(msg.date_created, msg.owner)
 
     activity = task_obj.bug.activity
-    if activity:
-        entry = activity[-1]
+    n_act = len(activity)
+    if n_act > 0:
+        entry = activity[n_act - 1]
         _try_append(entry.datechanged, entry.person)
 
     if not candidates:
