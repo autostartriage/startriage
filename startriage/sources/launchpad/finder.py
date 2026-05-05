@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import aiohttp
 import debian.deb822
@@ -73,33 +73,42 @@ def _search_tasks_all_series(distro, *args, **kwargs):
     return result.values()
 
 
-def _last_activity_ours(
-    task_obj, activity_subscriber_links: set[str], last_messages_considered: int = 3
-) -> bool:
-    if not activity_subscriber_links:
-        return False
-    activity_list = []
-    msgs = task_obj.bug.messages
-    last = len(msgs)
-    start = max(0, last - last_messages_considered)
+def _last_activity_ours(task_obj, lp_user_links: set[str]) -> bool:
+    """Return True if the single most recent bug event was by a team member.
 
-    for msg in msgs[start:last]:
-        try:
-            activity_list.append((msg.date_created, msg.owner.self_link))
-        except ClientError as exc:
-            if exc.response["status"] == "410":
-                continue
-            raise
-    if not activity_list:
+    Considers both comments (bug.messages) and state/metadata changes
+    (bug.activity) - LP provides no unified timeline, so the last item of
+    each collection is compared and the more recent one wins.
+
+    None person_link means an automated/system change — treated as external.
+    """
+    if not lp_user_links:
         return False
-    most_recent = activity_list[-1]
-    threshold = most_recent[0] - timedelta(hours=1)
-    recent = [most_recent]
-    for item in reversed(activity_list[:-1]):
-        if item[0] < threshold:
-            break
-        recent.append(item)
-    return all(a[1] in activity_subscriber_links for a in recent)
+
+    candidates: list[tuple[datetime, str | None]] = []
+
+    def _try_append(dt, person_obj) -> None:
+        try:
+            candidates.append((dt, person_obj.self_link if person_obj else None))
+        except ClientError as exc:
+            if exc.response["status"] != "410":  # user deleted
+                raise
+
+    msgs = task_obj.bug.messages
+    if msgs:
+        msg = msgs[-1]
+        _try_append(msg.date_created, msg.owner)
+
+    activity = task_obj.bug.activity
+    if activity:
+        entry = activity[-1]
+        _try_append(entry.datechanged, entry.person)
+
+    if not candidates:
+        return False
+
+    _, last_person_link = max(candidates, key=lambda e: e[0])
+    return last_person_link is not None and last_person_link in lp_user_links
 
 
 async def fetch_unapproved_bugs_for_series(
