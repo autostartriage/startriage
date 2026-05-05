@@ -225,7 +225,12 @@ class DiscourseTriage(TriageResult):
 
         if chain:
             indent = chain[0] + "".join("  " + c for c in chain[1:])
-            print(indent, end="─ ", file=cfg.out)
+            if cfg.fmt == OutputFormat.MARKDOWN:
+                # Discourse strips leading regular spaces; replace with non-breaking spaces
+                indent = indent.replace(" ", "\u00a0")
+                print(indent, end="─\u00a0", file=cfg.out)
+            else:
+                print(indent, end="─ ", file=cfg.out)
 
         self._print_single_comment(meta.post, meta.status, meta.update_date, meta.url, cfg)
 
