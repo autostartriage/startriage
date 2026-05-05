@@ -7,6 +7,7 @@ import logging
 import os
 import subprocess
 from datetime import datetime
+from enum import StrEnum
 from typing import cast
 
 import aiohttp
@@ -15,16 +16,18 @@ from startriage.enums import FetchMode
 
 from .models import Issue, PullRequest, Repo, RepoResult
 
+logger = logging.getLogger(__name__)
+
 _GH_GRAPHQL = "https://api.github.com/graphql"
 _GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
 
 _ISSUES_QUERY = """
 query RepoIssues(
-  $owner: String!, $name: String!, $since: DateTime!, $cursor: String
+  $owner: String!, $name: String!, $since: DateTime!, $states: [IssueState!]!, $cursor: String
 ) {
   repository(owner: $owner, name: $name) {
     issues(
-      first: 100, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC},
+      first: 100, states: $states, orderBy: {field: UPDATED_AT, direction: DESC},
       filterBy: {since: $since}, after: $cursor
     ) {
       pageInfo { hasNextPage endCursor }
@@ -42,11 +45,11 @@ query RepoIssues(
 
 _PRS_QUERY = """
 query RepoPRs(
-  $owner: String!, $name: String!, $cursor: String
+  $owner: String!, $name: String!, $states: [PullRequestState!]!, $cursor: String
 ) {
   repository(owner: $owner, name: $name) {
     pullRequests(
-      first: 100, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC},
+      first: 100, states: $states, orderBy: {field: UPDATED_AT, direction: DESC},
       after: $cursor
     ) {
       pageInfo { hasNextPage endCursor }
@@ -61,6 +64,10 @@ query RepoPRs(
   }
 }
 """
+
+class QueryTarget(StrEnum):
+    issues = "issues"
+    prs = "pullRequests"
 
 
 def get_github_token() -> str | None:
@@ -139,26 +146,48 @@ def _is_actionable(
 async def _fetch_items(
     session: aiohttp.ClientSession,
     gh_repo: Repo,
-    query: str,
-    conn_key: str,
+    query_target: QueryTarget,
     since_str: str,
     mode: FetchMode,
     start: datetime | None,
     end: datetime | None,
     labels: list[str] | None,
 ) -> list[Issue] | list[PullRequest]:
-    from_node = Issue.from_graphql_node if conn_key == "issues" else PullRequest.from_graphql_node
     items: list = []
     cursor: str | None = None
+
+    match query_target:
+        case QueryTarget.issues:
+            logger.debug("Fetching issues for %s/%s", gh_repo.owner, gh_repo.name)
+            query = _ISSUES_QUERY
+            from_node = Issue.from_graphql_node
+        case QueryTarget.prs:
+            logger.debug("Fetching PRs for %s/%s", gh_repo.owner, gh_repo.name)
+            query = _PRS_QUERY
+            from_node = PullRequest.from_graphql_node
+
+        case _:
+            raise NotImplementedError
+
+    # In todo mode, closed items can still have the todo label; only subscribed gets OPEN-only.
+    # For PRs, also include MERGED to catch closed/merged PRs with todo labels.
+    if mode == FetchMode.subscribed:
+        states = ["OPEN"]
+    else:
+        match query_target:
+            case QueryTarget.prs:
+                states = ["OPEN", "CLOSED", "MERGED"]
+            case QueryTarget.issues:
+                states = ["OPEN", "CLOSED"]
+            case _:
+                raise NotImplementedError
+
     while True:
-        data = await _graphql(
-            session,
-            query,
-            {"owner": gh_repo.owner, "name": gh_repo.name, "cursor": cursor}
-            if conn_key == "pullRequests"
-            else {"owner": gh_repo.owner, "name": gh_repo.name, "since": since_str, "cursor": cursor},
-        )
-        conn = (data.get("repository") or {}).get(conn_key) or {}
+        variables: dict = {"owner": gh_repo.owner, "name": gh_repo.name, "states": states, "cursor": cursor}
+        if query_target == QueryTarget.issues:
+            variables["since"] = since_str
+        data = await _graphql(session, query, variables)
+        conn = (data.get("repository") or {}).get(query_target.value) or {}
         for node in conn.get("nodes") or []:
             item = from_node(node, gh_repo.url)
             if mode == FetchMode.triage:
@@ -196,7 +225,7 @@ async def fetch_repo(
     since_str = start.strftime("%Y-%m-%dT%H:%M:%SZ") if start else "1970-01-01T00:00:00Z"
 
     issues, prs = await asyncio.gather(
-        _fetch_items(session, gh_repo, _ISSUES_QUERY, "issues", since_str, mode, start, end, labels),
-        _fetch_items(session, gh_repo, _PRS_QUERY, "pullRequests", since_str, mode, start, end, labels),
+        _fetch_items(session, gh_repo, QueryTarget.issues, since_str, mode, start, end, labels),
+        _fetch_items(session, gh_repo, QueryTarget.prs, since_str, mode, start, end, labels),
     )
     return RepoResult(repo, cast(list[PullRequest], prs), cast(list[Issue], issues), labels=labels)
