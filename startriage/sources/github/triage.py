@@ -156,12 +156,16 @@ class GithubTriage(TriageResult):
             print(file=cfg.out)
 
             if former_bugs:
-                gone = [k for k in former_bugs if k not in {entry.key for entry in items}]
+                current_keys = {entry.key for entry in items}
+                gone = [k for k in former_bugs if k not in current_keys]
                 if gone and cfg.bug_persistor:
                     print(f"\nItems gone compared with {cfg.bug_persistor.compare_str}:", file=cfg.out)
-                    for key in gone:
-                        print(f"  {key}", file=cfg.out)
+                    gone_items = [GithubItemEntry.from_key(k) for k in gone]
+                    for item in gone_items:
+                        print(f"- {hyperlink(item.url, item.key, cfg.fmt)}", file=cfg.out)
                     print(file=cfg.out)
+                elif cfg.bug_persistor:
+                    print(f"\nNo items gone compared with {cfg.bug_persistor.compare_str}.", file=cfg.out)
 
     async def record(self, persistor: BugPersistor) -> None:
         items = self._collect_items()

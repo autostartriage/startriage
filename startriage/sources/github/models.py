@@ -118,6 +118,24 @@ class GithubItemEntry:
     def key(self) -> str:
         return f"{self.repo}#{self.item.number}"
 
+    @classmethod
+    def from_key(cls, key: str) -> GithubItemEntry:
+        """Create a stub entry from a persisted 'repo#number' key for display in gone-items lists."""
+        repo, num_str = key.rsplit("#", 1)
+        number = int(num_str)
+        repo_url = f"https://github.com/{repo}"
+        url = f"{repo_url}/issues/{number}"
+        stub = Issue(
+            number=number,
+            title="",
+            html_url=url,
+            repo_url=repo_url,
+            created_at=None,
+            updated_at=None,
+            state="closed",
+        )
+        return cls(item_type=GitHubItemType.issue, url=url, repo=repo, repo_url=repo_url, item=stub)
+
 
 @dataclass
 class RepoResult:
