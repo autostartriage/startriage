@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-from datetime import time as _time
+import traceback
+from datetime import time
 
 from .config import StarTriageConfig
 from .dates import compact_date_range, reverse_triage_task_day
@@ -54,7 +55,7 @@ async def run_triage(
 
     # show date range once before any section output
     if opts.start and opts.end:
-        _day_range = opts.start.time() == _time.min and opts.end.time() == _time.max
+        _day_range = opts.start.time() == time.min and opts.end.time() == time.max
         if _day_range:
             range = f" {compact_date_range(opts.start, opts.end)}"
             start_str = opts.start.strftime("%Y-%m-%d (%A)")
@@ -150,17 +151,29 @@ async def _output_results(
     output_cfg: OutputConfig, fetch_tasks: dict[str, asyncio.Task[TriageResult]]
 ) -> list[tuple[str, TriageResult]]:
     async with Spinner(set(fetch_tasks.keys())) as spinner:
-        results = await asyncio.gather(
+        gathered: list[tuple[str, TriageResult | Exception]] = await asyncio.gather(
             *[_await_and_print(output_cfg, source, task, spinner) for source, task in fetch_tasks.items()]
         )
-        return results
+
+    errors = [(s, e) for s, e in gathered if isinstance(e, Exception)]
+    if errors:
+        for source, exc in errors:
+            print(f"\nError fetching {source!r}:", file=output_cfg.out)
+            traceback.print_exception(exc, file=output_cfg.out)
+
+    return [(s, r) for s, r in gathered if not isinstance(r, Exception)]
 
 
 # Print sections in canonical order as each completes
 async def _await_and_print(
     output_cfg: OutputConfig, source: str, task: asyncio.Task, spinner: Spinner
-) -> tuple[str, TriageResult]:
-    result: TriageResult = await task
+) -> tuple[str, TriageResult | Exception]:
+    try:
+        result: TriageResult = await task
+    except Exception as exc:
+        spinner.done(source)
+        return source, exc
+
     spinner.done(source)
     spinner.clear()
     spinner.suspend()  # prevent spinner redraws while section output is in progress
