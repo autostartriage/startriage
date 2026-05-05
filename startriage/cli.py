@@ -19,7 +19,7 @@ from .log import log_setup
 from .output import OutputConfig, OutputFormat
 from .savebugs import BugPersistor, SaveConfig
 from .source import TaskFilterOptions
-from .triage import resolve_sources, run_todo, run_triage
+from .triage import SOURCES, resolve_sources, run_todo, run_triage
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -93,7 +93,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--source",
         default=None,
         metavar="SOURCE[,SOURCE]",
-        help="Comma-separated sources to include: launchpad, discourse, github",
+        help=f"Comma-separated sources to include: {', '.join(SOURCES.keys())} (default: all)",
     )
     taskfilter_p.add_argument(
         "--flag-recent",
