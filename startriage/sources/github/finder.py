@@ -2,19 +2,65 @@
 
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
 import os
 import subprocess
-import urllib.parse
 from datetime import datetime
+from typing import cast
 
 import aiohttp
 
-from .models import Issue, PullRequest, RepoResult
+from startriage.enums import FetchMode
 
-_GH_API = "https://api.github.com"
+from .models import Issue, PullRequest, Repo, RepoResult
+
+_GH_GRAPHQL = "https://api.github.com/graphql"
 _GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
+
+_ISSUES_QUERY = """
+query RepoIssues(
+  $owner: String!, $name: String!, $since: DateTime!, $cursor: String
+) {
+  repository(owner: $owner, name: $name) {
+    issues(
+      first: 100, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC},
+      filterBy: {since: $since}, after: $cursor
+    ) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number title url state createdAt updatedAt closedAt lastEditedAt
+        labels(first: 20) { nodes { name } }
+        assignees(first: 1) { nodes { login } }
+        comments(last: 1) { nodes { updatedAt } }
+        timelineItems(itemTypes: [REOPENED_EVENT], last: 1) { nodes { ... on ReopenedEvent { createdAt } } }
+      }
+    }
+  }
+}
+"""
+
+_PRS_QUERY = """
+query RepoPRs(
+  $owner: String!, $name: String!, $cursor: String
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(
+      first: 100, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC},
+      after: $cursor
+    ) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number title url state createdAt updatedAt closedAt lastEditedAt
+        labels(first: 20) { nodes { name } }
+        assignees(first: 1) { nodes { login } }
+        comments(last: 1) { nodes { updatedAt } }
+        timelineItems(itemTypes: [REOPENED_EVENT], last: 1) { nodes { ... on ReopenedEvent { createdAt } } }
+      }
+    }
+  }
+}
+"""
 
 
 def get_github_token() -> str | None:
@@ -47,95 +93,110 @@ def _make_headers(token: str | None) -> dict[str, str]:
     return headers
 
 
-async def _get_all_pages(session: aiohttp.ClientSession, url: str) -> list:
-    """Fetch all pages of a GitHub paginated endpoint, following Link headers."""
-    results: list = []
-    next_url: str | None = url
-    while next_url:
-        try:
-            async with session.get(next_url) as resp:
-                if resp.status != 200:
-                    logging.debug("GitHub HTTP %s: %s", resp.status, next_url)
-                    break
-                try:
-                    page = await resp.json(content_type=None)
-                except json.JSONDecodeError as exc:
-                    logging.debug("GitHub JSON error fetching %s: %s", next_url, exc)
-                    break
-                if isinstance(page, list):
-                    results.extend(page)
-                else:
-                    results.append(page)
-                # Parse Link header for the next page
-                link_header = resp.headers.get("Link", "")
-                next_url = _parse_next_link(link_header)
-        except aiohttp.ClientError as exc:
-            logging.debug("GitHub error fetching %s: %s", next_url, exc)
-            break
-    return results
-
-
-def _parse_next_link(link_header: str) -> str | None:
-    """Extract the 'next' URL from a GitHub Link response header."""
-    for part in (p.strip() for p in link_header.split(",")):
-        # Each part looks like: <url>; rel="next"
-        if 'rel="next"' in part:
-            url_part = part.split(";")[0].strip()
-            if url_part.startswith("<") and url_part.endswith(">"):
-                return url_part[1:-1]
-    return None
-
-
 def _in_range(dt: datetime | None, start: datetime | None, end: datetime | None) -> bool:
     if dt is None or start is None or end is None:
         return False
     return start <= dt <= end
 
 
+async def _graphql(
+    session: aiohttp.ClientSession,
+    query: str,
+    variables: dict,
+) -> dict:
+    """Execute a GraphQL query and return the parsed JSON response."""
+    async with session.post(_GH_GRAPHQL, json={"query": query, "variables": variables}) as resp:
+        if resp.status != 200:
+            text = await resp.text()
+            raise RuntimeError(f"GitHub GraphQL HTTP {resp.status}: {text[:200]}")
+        data = await resp.json(content_type=None)
+
+    if errors := data.get("errors"):
+        raise RuntimeError(f"GitHub GraphQL errors: {errors}")
+
+    return data["data"]
+
+
+def _is_actionable(
+    item: Issue | PullRequest,
+    start: datetime,
+    end: datetime,
+) -> bool:
+    """True if the item has meaningful activity within [start, end].
+
+    An item updated_at within the window but failing all conditions was
+    touched only by metadata changes (label, assignee, milestone, …).
+    """
+    return (
+        _in_range(item.created_at, start, end)
+        or _in_range(item.last_edited_at, start, end)
+        or _in_range(item.latest_comment_at, start, end)
+        or _in_range(item.reopened_at, start, end)
+        or _in_range(item.closed_at, start, end)
+    )
+
+
+async def _fetch_items(
+    session: aiohttp.ClientSession,
+    gh_repo: Repo,
+    query: str,
+    conn_key: str,
+    since_str: str,
+    mode: FetchMode,
+    start: datetime | None,
+    end: datetime | None,
+    labels: list[str] | None,
+) -> list[Issue] | list[PullRequest]:
+    from_node = Issue.from_graphql_node if conn_key == "issues" else PullRequest.from_graphql_node
+    items: list = []
+    cursor: str | None = None
+    while True:
+        data = await _graphql(
+            session,
+            query,
+            {"owner": gh_repo.owner, "name": gh_repo.name, "cursor": cursor}
+            if conn_key == "pullRequests"
+            else {"owner": gh_repo.owner, "name": gh_repo.name, "since": since_str, "cursor": cursor},
+        )
+        conn = (data.get("repository") or {}).get(conn_key) or {}
+        for node in conn.get("nodes") or []:
+            item = from_node(node, gh_repo.url)
+            if mode == FetchMode.triage:
+                assert start is not None and end is not None
+                if not _in_range(item.updated_at, start, end):
+                    return items  # sorted DESC; nothing further in range
+                if not _is_actionable(item, start, end):
+                    logging.debug(
+                        "Skipping %s/%s#%s: metadata-only update",
+                        gh_repo.owner,
+                        gh_repo.name,
+                        item.number,
+                    )
+                    continue
+            if labels is None or any(lbl in item.labels for lbl in labels):
+                items.append(item)
+        page_info = conn.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info["endCursor"]
+    return items
+
+
 async def fetch_repo(
     session: aiohttp.ClientSession,
+    mode: FetchMode,
     repo: str,
     start: datetime | None,
     end: datetime | None,
     labels: list[str] | None = None,
 ) -> RepoResult:
-    """Fetch PRs and Issues for one repo updated within [start, end].
+    """Fetch PRs and Issues for one repo via GraphQL, concurrently."""
+    owner, name = repo.split("/", 1)
+    gh_repo = Repo(owner=owner, name=name, url=f"https://github.com/{repo}")
+    since_str = start.strftime("%Y-%m-%dT%H:%M:%SZ") if start else "1970-01-01T00:00:00Z"
 
-    Uses the /issues endpoint exclusively — it returns both issues and PRs and
-    supports server-side label filtering (unlike /pulls which ignores labels).
-    Multiple labels are ORed: one request is made per label and results are
-    deduplicated by number.  When *labels* is empty/None, all open items are
-    returned without label filtering.
-    """
-    base = f"{_GH_API}/repos/{repo}/issues?state=open&sort=updated&direction=desc&per_page=100"
-
-    if labels:
-        # Fetch each label separately and deduplicate (GitHub AND-s multiple labels in one request)
-        seen: set[int] = set()
-        raw: list[dict] = []
-        for lbl in labels:
-            page_data = await _get_all_pages(session, base + f"&labels={urllib.parse.quote(lbl, safe='')}")
-            for item in page_data:
-                if item["number"] not in seen:
-                    seen.add(item["number"])
-                    raw.append(item)
-    else:
-        raw = await _get_all_pages(session, base)
-
-    prs: list[PullRequest] = []
-    issues: list[Issue] = []
-    for d in raw:
-        if "pull_request" in d:
-            pr = PullRequest.from_api_dict(d)
-            if start is None or _in_range(pr.created_at, start, end) or _in_range(pr.updated_at, start, end):
-                prs.append(pr)
-        else:
-            issue = Issue.from_api_dict(d)
-            if (
-                start is None
-                or _in_range(issue.created_at, start, end)
-                or _in_range(issue.updated_at, start, end)
-            ):
-                issues.append(issue)
-
-    return RepoResult(repo, prs, issues, labels=labels)
+    issues, prs = await asyncio.gather(
+        _fetch_items(session, gh_repo, _ISSUES_QUERY, "issues", since_str, mode, start, end, labels),
+        _fetch_items(session, gh_repo, _PRS_QUERY, "pullRequests", since_str, mode, start, end, labels),
+    )
+    return RepoResult(repo, cast(list[PullRequest], prs), cast(list[Issue], issues), labels=labels)

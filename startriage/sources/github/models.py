@@ -17,6 +17,13 @@ def _parse_dt(s: str | None) -> datetime | None:
 
 
 @dataclass
+class Repo:
+    owner: str
+    name: str
+    url: str
+
+
+@dataclass
 class PullRequest:
     number: int
     title: str
@@ -27,20 +34,31 @@ class PullRequest:
     state: str
     labels: list[str] = field(default_factory=list)
     assignee: str | None = None
+    last_edited_at: datetime | None = None
+    latest_comment_at: datetime | None = None
+    reopened_at: datetime | None = None
+    closed_at: datetime | None = None
 
     @classmethod
-    def from_api_dict(cls, d: dict) -> PullRequest:
-        assignee_obj = d.get("assignee")
+    def from_graphql_node(cls, node: dict, repo_url: str) -> PullRequest:
+        assignee_nodes = node.get("assignees", {}).get("nodes") or []
+        comment_nodes = node.get("comments", {}).get("nodes") or []
         return cls(
-            number=d["number"],
-            title=d["title"],
-            html_url=d["html_url"],
-            repo_url=d["repository_url"],
-            created_at=_parse_dt(d.get("created_at")),
-            updated_at=_parse_dt(d.get("updated_at")),
-            state=d.get("state", ""),
-            labels=[lbl["name"] for lbl in d.get("labels", [])],
-            assignee=assignee_obj.get("login") if assignee_obj else None,
+            number=node["number"],
+            title=node["title"],
+            html_url=node["url"],
+            repo_url=repo_url,
+            created_at=_parse_dt(node.get("createdAt")),
+            updated_at=_parse_dt(node.get("updatedAt")),
+            last_edited_at=_parse_dt(node.get("lastEditedAt")),
+            latest_comment_at=_parse_dt(comment_nodes[-1].get("updatedAt") if comment_nodes else None),
+            reopened_at=_parse_dt(
+                ((node.get("timelineItems", {}).get("nodes") or [{}])[-1]).get("createdAt")
+            ),
+            closed_at=_parse_dt(node.get("closedAt")),
+            state=node["state"].lower(),
+            labels=[lbl["name"] for lbl in node.get("labels", {}).get("nodes") or []],
+            assignee=assignee_nodes[0]["login"] if assignee_nodes else None,
         )
 
 
@@ -55,20 +73,31 @@ class Issue:
     state: str
     labels: list[str] = field(default_factory=list)
     assignee: str | None = None
+    last_edited_at: datetime | None = None
+    latest_comment_at: datetime | None = None
+    reopened_at: datetime | None = None
+    closed_at: datetime | None = None
 
     @classmethod
-    def from_api_dict(cls, d: dict) -> Issue:
-        assignee_obj = d.get("assignee")
+    def from_graphql_node(cls, node: dict, repo_url: str) -> Issue:
+        assignee_nodes = node.get("assignees", {}).get("nodes") or []
+        comment_nodes = node.get("comments", {}).get("nodes") or []
         return cls(
-            number=d["number"],
-            title=d["title"],
-            html_url=d["html_url"],
-            repo_url=d["repository_url"],
-            created_at=_parse_dt(d.get("created_at")),
-            updated_at=_parse_dt(d.get("updated_at")),
-            state=d.get("state", ""),
-            labels=[lbl["name"] for lbl in d.get("labels", [])],
-            assignee=assignee_obj.get("login") if assignee_obj else None,
+            number=node["number"],
+            title=node["title"],
+            html_url=node["url"],
+            repo_url=repo_url,
+            created_at=_parse_dt(node.get("createdAt")),
+            updated_at=_parse_dt(node.get("updatedAt")),
+            last_edited_at=_parse_dt(node.get("lastEditedAt")),
+            latest_comment_at=_parse_dt(comment_nodes[-1].get("updatedAt") if comment_nodes else None),
+            reopened_at=_parse_dt(
+                ((node.get("timelineItems", {}).get("nodes") or [{}])[-1]).get("createdAt")
+            ),
+            closed_at=_parse_dt(node.get("closedAt")),
+            state=node["state"].lower(),
+            labels=[lbl["name"] for lbl in node.get("labels", {}).get("nodes") or []],
+            assignee=assignee_nodes[0]["login"] if assignee_nodes else None,
         )
 
 

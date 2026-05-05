@@ -9,7 +9,7 @@ from datetime import date
 
 import aiohttp
 
-from ...config import StarTriageConfig
+from ...config import GithubRepoConfig, StarTriageConfig
 from ...enums import FetchMode
 from ...output import OutputConfig, OutputFormat, TriageResult, hyperlink, truncate_string
 from ...savebugs import BugPersistor
@@ -225,25 +225,30 @@ async def find(
         start = None
         end = None
 
+    # paralellism cap to avoid github rate limits
+    sem = asyncio.Semaphore(5)
+
     async with aiohttp.ClientSession(headers=headers) as session:
-        tasks = []
-        for repo in team_config.github_repos:
+
+        async def _fetch_repo(repo_cfg: GithubRepoConfig) -> RepoResult:
             labels = None
             if mode == FetchMode.todo:
-                if repo.todo_labels is not None:
-                    labels = repo.todo_labels
+                if repo_cfg.todo_labels is not None:
+                    labels = repo_cfg.todo_labels
                 else:
                     labels = team_label_list
-
-            tasks.append(
-                fetch_repo(
+            async with sem:
+                return await fetch_repo(
                     session,
-                    repo.name,
+                    mode,
+                    repo_cfg.name,
                     start=start,
                     end=end,
                     labels=labels,
                 )
-            )
+
+        tasks = [_fetch_repo(r) for r in team_config.github_repos]
+
         results = await asyncio.gather(*tasks)
 
     return GithubTriage(start=start, end=end, results=results, mode=mode)
