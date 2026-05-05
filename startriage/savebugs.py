@@ -110,7 +110,7 @@ class BugPersistor:
         for source, ids in self._previous_items.items():
             if source not in self._pending:
                 payload[source] = ids
-        payload.update({k: list(v) for k, v in self._pending.items()})
+        payload.update({k: sorted(v) for k, v in self._pending.items()})
 
         with self._save_path.open("w", encoding="utf-8") as fh:
             yaml.dump(payload, stream=fh)
