@@ -142,6 +142,24 @@ class Task:
 
     @property
     @lru_cache(maxsize=None)  # noqa: B019
+    def all_assignees(self) -> list[str]:
+        """
+        All unique assignees across all bug tasks, this task's assignee first.
+        It's best to sort tasks by actionability_rank before calling this
+        to get the most relevant assignees first.
+        """
+        # use dict to preserve order
+        seen: dict[str, None] = {}
+        if self.assignee:
+            seen[self.assignee] = None
+        for lp_task in self._all_bug_tasks:
+            if lp_task.assignee_link:
+                name = lp_task.assignee_link.split("~")[1]
+                seen[name] = None
+        return list(seen)
+
+    @property
+    @lru_cache(maxsize=None)  # noqa: B019
     def _sibling_tasks(self) -> dict[str, Any]:
         """All sibling tasks for this package across series -- cached.
 
@@ -254,13 +272,14 @@ class Task:
             hyperlink(_LP_SOURCE_URL.format(pkg=self.src), truncate_string(self.src, 19), pad_right=19),
         )
         if extended:
-            assignee_col = (
-                hyperlink(
-                    _LP_USER_URL.format(user=self.assignee), truncate_string(self.assignee, 13), pad_right=13
+            if assignees := self.all_assignees:
+                assignee_col = hyperlink(
+                    _LP_USER_URL.format(user=assignees[0]),
+                    truncate_string(",".join(assignees), 13),
+                    pad_right=13,
                 )
-                if self.assignee
-                else " " * 13
-            )
+            else:
+                assignee_col = " " * 13
             text += " %8s | %-10s | %s |" % (
                 self.date_last_updated.strftime("%y-%m-%d"),
                 self.importance,
