@@ -100,7 +100,11 @@ async def run_triage(
     if output_cfg.markdown_path:
         buf = io.StringIO()
 
-        buf.write(f"# Triage{range}\n")
+        if range:
+            buf.write(f"# Triage of changes on{range}\n")
+        else:
+            buf.write(f"# Triage\n")
+
         md_cfg = OutputConfig(fmt=OutputFormat.MARKDOWN, out=buf, open_in_browser=False, terminal_links=False)
 
         # ensure the section order
