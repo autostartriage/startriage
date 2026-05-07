@@ -20,6 +20,8 @@ from ...source import TaskFilterOptions
 from .finder import connect_launchpad, fetch_bugs, fetch_unapproved_bugs_for_series
 from .models import LaunchpadTasks, RenderContext, Task
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class LaunchpadTriage(TriageResult):
@@ -280,7 +282,7 @@ async def find(
 
     team_config = config.get_team(filter.team)
 
-    logging.info("Fetching Launchpad bugs (this may take a while)…")
+    logger.info("Fetching Launchpad bugs (this may take a while)…")
     lp = connect_launchpad()
     lp_tasks = await asyncio.to_thread(
         fetch_bugs,
@@ -292,7 +294,7 @@ async def find(
         config.general.lp_expire_level1_days,
         config.general.lp_expire_level2_days,
     )
-    logging.info("Launchpad: %d bugs fetched. Checking unapproved queue…", len(lp_tasks.tasks))
+    logger.info("Launchpad: %d bugs fetched. Checking unapproved queue…", len(lp_tasks.tasks))
 
     async with aiohttp.ClientSession() as session:
         unapproved_bugs = await fetch_unapproved_bugs_for_series(session, lp_tasks.changes_pairs)
@@ -310,5 +312,5 @@ async def find(
         mode=mode,
         unapproved_cache=unapproved_cache,
     )
-    logging.info("Launchpad: done.")
+    logger.info("Launchpad: done.")
     return triage

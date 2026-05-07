@@ -19,6 +19,9 @@ from ...config import TeamConfig
 from ...enums import FetchMode
 from .models import LaunchpadTasks, Task
 
+logger = logging.getLogger(__name__)
+
+
 # apparently not exported by launchpadlib...
 POSSIBLE_BUG_STATUSES = [
     "New",
@@ -52,6 +55,8 @@ def connect_launchpad() -> Launchpad:
     cred_dir.mkdir(parents=True, exist_ok=True)
     cred_location = cred_dir / "lp_creds"
     credential_store = UnencryptedFileCredentialStore(str(cred_location))
+
+    logger.debug("logging into launchpad...")
     return Launchpad.login_with(
         "startriage", "production", version="devel", credential_store=credential_store
     )
@@ -135,6 +140,8 @@ async def fetch_unapproved_bugs_for_series(
     Takes pre-collected (pkg_name, changes_file_url) string pairs - no LP objects.
     """
 
+    logger.debug("fetching changes %d changelogs", len(changes_urls))
+
     async def _bugs_for_upload(pkg: str, url: str) -> tuple[str, list[str]]:
         try:
             async with session.get(url) as resp:
@@ -145,13 +152,14 @@ async def fetch_unapproved_bugs_for_series(
                 bugs_str = changes.get("Launchpad-Bugs-Fixed", "")
                 return pkg, bugs_str.split()
         except Exception as exc:
-            logging.debug("Error fetching changes %s: %s", url, exc)
+            logger.debug("Error fetching changes %s: %s", url, exc)
             return pkg, []
 
     results = await asyncio.gather(*[_bugs_for_upload(pkg, url) for pkg, url in changes_urls])
     pkg_bugs: dict[str, set[str]] = {}
     for pkg, bugs in results:
         pkg_bugs.setdefault(pkg, set()).update(bugs)
+        logger.debug("changelog for pkg %s fixes %d bugs", pkg, len(bugs))
     return pkg_bugs
 
 
@@ -179,6 +187,7 @@ def fetch_bugs(
 
     match mode:
         case FetchMode.triage:
+            logger.debug("fetching tasks since start %s...", filter.start)
             bugs_start = {
                 (t.bug_link, _fast_target_name(t)): t
                 for t in _search_tasks_all_series(
@@ -188,6 +197,7 @@ def fetch_bugs(
                     status=POSSIBLE_BUG_STATUSES,
                 )
             }
+            logger.debug("fetching tasks since end %s...", filter.end)
             bugs_end = {
                 (t.bug_link, _fast_target_name(t)): t
                 for t in _search_tasks_all_series(
@@ -197,6 +207,7 @@ def fetch_bugs(
                     status=POSSIBLE_BUG_STATUSES,
                 )
             }
+            logger.debug("fetching subscribed tasks since start %s...", filter.start)
             already_subscribed = {
                 (t.bug_link, _fast_target_name(t)): t
                 for t in _search_tasks_all_series(
@@ -207,9 +218,11 @@ def fetch_bugs(
                     status=POSSIBLE_BUG_STATUSES,
                 )
             }
+            logger.debug("intersecting tasks %d start from %d end tasks", len(bugs_start), len(bugs_end))
             bugs_in_range = {k: v for k, v in bugs_start.items() if k not in bugs_end}
 
         case FetchMode.todo:
+            logger.debug("fetching todo tasks (tag %s)...", team_config.lp_todo_tag)
             bugs_in_range = {
                 (t.bug_link, _fast_target_name(t)): t
                 for t in _search_tasks_all_series(
@@ -223,6 +236,7 @@ def fetch_bugs(
             already_subscribed = {}
 
         case FetchMode.subscribed:
+            logger.debug("fetching subscribed tasks (subscriber = %s)...", team)
             bugs_in_range = {
                 (t.bug_link, _fast_target_name(t)): t
                 for t in _search_tasks_all_series(
@@ -258,6 +272,7 @@ def fetch_bugs(
             subscribed=is_subscribed,
             last_activity_ours=is_ours,
         )
+        logger.debug("listing bug task %s for pkg %s bug %s", task, src, bug_link)
         tasks.add(task)
 
     # Expiration section: bugs that fell through the triage window N days ago.
@@ -300,15 +315,16 @@ def fetch_bugs(
                 result.append(Task(lp_task, subscribed=True, last_activity_ours=is_ours, expiring=True))
             return result
 
-        logging.info("Fetching expiring bugs level 1 (~%d days ago)\u2026", expire_level1_days)
+        logger.debug("fetching expiring bugs level 1 (~%d days ago)\u2026", expire_level1_days)
         expiring_tagged = _expiring_window(expire_level1_days)
-        logging.info("Launchpad: %d expiring level-1 bugs.", len({t.number for t in expiring_tagged}))
+        logger.debug("%d expiring level-1 bugs.", len({t.number for t in expiring_tagged}))
 
-        logging.info("Fetching expiring bugs level 2 (~%d days ago)\u2026", expire_level2_days)
+        logger.debug("fetching expiring bugs level 2 (~%d days ago)\u2026", expire_level2_days)
         expiring_subscribed = _expiring_window(expire_level2_days)
-        logging.info("Launchpad: %d expiring level-2 bugs.", len({t.number for t in expiring_subscribed}))
+        logger.debug("%d expiring level-2 bugs.", len({t.number for t in expiring_subscribed}))
 
     active_series = [s.name for s in ubuntu.series_collection if s.active]
+    logger.debug("determining unapproved uploads for bug (%d release series)...", len(active_series))
 
     relevant_packages = {t.src for t in tasks}
     relevant_packages.update(t.src for t in expiring_tagged)
@@ -319,6 +335,7 @@ def fetch_bugs(
     changes_pairs: list[tuple[str, str]] = []
     if relevant_packages:
         for series_name in active_series:
+            logger.debug("fetching unapproved uploads in series %s...", series_name)
             series_obj = ubuntu.getSeries(name_or_version=series_name)
             uploads = list(series_obj.getPackageUploads(pocket="Proposed", status="Unapproved"))
             for upload in uploads:
