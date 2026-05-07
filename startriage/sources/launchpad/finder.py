@@ -310,16 +310,23 @@ def fetch_bugs(
 
     active_series = [s.name for s in ubuntu.series_collection if s.active]
 
+    relevant_packages = {t.src for t in tasks}
+    relevant_packages.update(t.src for t in expiring_tagged)
+    relevant_packages.update(t.src for t in expiring_subscribed)
+
     # Collect (pkg_name, changes_url) pairs for all active series - all LP access here,
     # so no LP objects escape to the async event loop
     changes_pairs: list[tuple[str, str]] = []
-    for series_name in active_series:
-        series_obj = ubuntu.getSeries(name_or_version=series_name)
-        uploads = list(series_obj.getPackageUploads(pocket="Proposed", status="Unapproved"))
-        for upload in uploads:
-            url = upload.changes_file_url
-            if url:
-                changes_pairs.append((upload.package_name, str(url)))
+    if relevant_packages:
+        for series_name in active_series:
+            series_obj = ubuntu.getSeries(name_or_version=series_name)
+            uploads = list(series_obj.getPackageUploads(pocket="Proposed", status="Unapproved"))
+            for upload in uploads:
+                if upload.package_name not in relevant_packages:
+                    continue
+                url = upload.changes_file_url
+                if url:
+                    changes_pairs.append((upload.package_name, str(url)))
 
     return LaunchpadTasks(
         list(tasks),
