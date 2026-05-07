@@ -45,8 +45,8 @@ class RenderContext:
 
     nowork_statuses: list[str] = field(default_factory=list)
     open_statuses: list[str] = field(default_factory=list)
-    # {(bug_number, src_package): True} -- populated by finder bulk unapproved check
-    unapproved_cache: dict[tuple[str, str], bool] = field(default_factory=dict)
+    # {(bug_number, src_package)} -- populated by finder bulk unapproved check
+    unapproved_bug_fixes: set[tuple[str, str]] = field(default_factory=set)
     # datetime thresholds for U (recently updated) and O (old) flags
     recent_since: datetime | None = None
     old_since: datetime | None = None
@@ -180,7 +180,7 @@ class Task:
 
     def is_in_unapproved(self, ctx: RenderContext) -> bool:
         """Check bulk unapproved cache from RenderContext."""
-        return ctx.unapproved_cache.get((self.number, self.src), False)
+        return (self.number, self.src) in ctx.unapproved_bug_fixes
 
     def _is_updated(self, ctx: RenderContext) -> bool:
         return bool(ctx.recent_since and self.date_last_updated > ctx.recent_since)

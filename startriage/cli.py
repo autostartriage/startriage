@@ -301,6 +301,7 @@ async def _run_triage(args: argparse.Namespace, config: StarTriageConfig) -> Non
     output_cfg = _outputcfg_from_args(args)
     await run_triage(config, filter, output_cfg)
 
+
 async def _run_todo(args: argparse.Namespace, config: StarTriageConfig) -> None:
     if args.flag_recent is None and not args.subscribed:
         args.flag_recent = 6  # default flag-recent for todo mode

@@ -65,6 +65,7 @@ query RepoPRs(
 }
 """
 
+
 class QueryTarget(StrEnum):
     issues = "issues"
     prs = "pullRequests"

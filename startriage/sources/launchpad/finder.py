@@ -86,7 +86,22 @@ _LP_IGNORE_EVENTS: dict[str, frozenset[str]] = {
 }
 
 
-def _last_activity_ours(task_obj, lp_user_links: set[str]) -> bool:
+def _last_activity_ours(
+    bugs_touched_by_us_last: dict[str, bool], src_pkg: str, bug_link: str, lp_task, lp_user_links: set[str]
+) -> bool:
+    if bug_link not in bugs_touched_by_us_last:
+        logger.debug("determining last activity for pkg %s bug %s", src_pkg, bug_link)
+        is_ours = _fetch_last_activity_ours(lp_task, lp_user_links)
+        logger.debug("last activity for pkg %s bug %s is ours: %s", src_pkg, bug_link, is_ours)
+        bugs_touched_by_us_last[bug_link] = is_ours
+    else:
+        is_ours = bugs_touched_by_us_last[bug_link]
+        logger.debug("last activity for pkg %s bug %s is ours: %s (cached)", src_pkg, bug_link, is_ours)
+
+    return is_ours
+
+
+def _fetch_last_activity_ours(task_obj, lp_user_links: set[str]) -> bool:
     """Return True if the single most recent human bug event was by a team member.
 
     Considers both comments (bug.messages) and state/metadata changes
@@ -132,7 +147,7 @@ def _last_activity_ours(task_obj, lp_user_links: set[str]) -> bool:
     return last_person_link is not None and last_person_link in lp_user_links
 
 
-async def fetch_unapproved_bugs_for_series(
+async def fetch_changelogs(
     session: aiohttp.ClientSession, changes_urls: list[tuple[str, str]]
 ) -> dict[str, set[str]]:
     """Return {source_package: {bug_number, ...}} for a batch of (pkg, changes_url) pairs.
@@ -183,7 +198,7 @@ def fetch_bugs(
     team = lp.people[team_config.lp_team]
 
     activity_people = lp.people[team_config.lp_team].participants
-    activity_links = {p.self_link for p in activity_people}
+    team_user_links = {p.self_link for p in activity_people}
 
     match mode:
         case FetchMode.triage:
@@ -252,12 +267,14 @@ def fetch_bugs(
             raise ValueError(f"Unknown fetch mode: {mode!r}")
 
     tasks = set()
+    bugs_touched_by_us_last: dict[str, bool] = {}
     for (bug_link, _), lp_task in bugs_in_range.items():
         src = _fast_target_name(lp_task)
         if src in team_config.lp_ignore_packages:
             continue
         is_subscribed = (bug_link, src) in already_subscribed
-        is_ours = _last_activity_ours(lp_task, activity_links)
+
+        is_ours = _last_activity_ours(bugs_touched_by_us_last, src, bug_link, lp_task, team_user_links)
 
         # Apply update filter (triage mode only)
         if mode == FetchMode.triage and update_filter:
@@ -304,13 +321,15 @@ def fetch_bugs(
                 )
             }
             result = []
-            for key, lp_task in since_start.items():
-                if key in since_end:
+            for bug_ref, lp_task in since_start.items():
+                if bug_ref in since_end:
                     continue
                 src = _fast_target_name(lp_task)
                 if src in team_config.lp_ignore_packages:
                     continue
-                is_ours = _last_activity_ours(lp_task, activity_links)
+                is_ours = _last_activity_ours(
+                    bugs_touched_by_us_last, src, bug_ref[0], lp_task, team_user_links
+                )
                 result.append(Task(lp_task, subscribed=True, last_activity_ours=is_ours, expiring=True))
             return result
 

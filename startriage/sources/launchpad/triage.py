@@ -17,7 +17,7 @@ from ...enums import FetchMode
 from ...output import OutputConfig, OutputFormat, TriageResult, hyperlink, truncate_string
 from ...savebugs import BugPersistor
 from ...source import TaskFilterOptions
-from .finder import connect_launchpad, fetch_bugs, fetch_unapproved_bugs_for_series
+from .finder import connect_launchpad, fetch_bugs, fetch_changelogs
 from .models import LaunchpadTasks, RenderContext, Task
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,8 @@ class LaunchpadTriage(TriageResult):
     team_config: TeamConfig
     config: GeneralConfig
     mode: FetchMode = FetchMode.triage
-    unapproved_cache: dict[tuple[str, str], bool] = field(default_factory=dict)
+    # (bugid, pkg) for all bugsfixes waiting in unapproved
+    unapproved_bug_fixes: set[tuple[str, str]] = field(default_factory=set)
 
     @property
     def had_updates(self) -> bool:
@@ -81,7 +82,7 @@ class LaunchpadTriage(TriageResult):
         ctx = RenderContext(
             nowork_statuses=self.tasks.nowork_statuses,
             open_statuses=self.tasks.open_statuses,
-            unapproved_cache=self.unapproved_cache,
+            unapproved_bug_fixes=self.unapproved_bug_fixes,
             recent_since=self.filter.recent_since,
             old_since=self.filter.old_since,
         )
@@ -113,7 +114,7 @@ class LaunchpadTriage(TriageResult):
         ctx = RenderContext(
             nowork_statuses=self.tasks.nowork_statuses,
             open_statuses=self.tasks.open_statuses,
-            unapproved_cache=self.unapproved_cache,
+            unapproved_bug_fixes=self.unapproved_bug_fixes,
             recent_since=self.filter.recent_since,
             old_since=self.filter.old_since,
         )
@@ -297,12 +298,12 @@ async def find(
     logger.info("Launchpad: %d bugs fetched. Checking unapproved queue…", len(lp_tasks.tasks))
 
     async with aiohttp.ClientSession() as session:
-        unapproved_bugs = await fetch_unapproved_bugs_for_series(session, lp_tasks.changes_pairs)
+        unapproved_upload_bugs = await fetch_changelogs(session, lp_tasks.changes_pairs)
 
-    unapproved_cache: dict[tuple[str, str], bool] = {}
-    for pkg, bug_nums in unapproved_bugs.items():
+    unapproved_bugfixes: set[tuple[str, str]] = set()
+    for pkg, bug_nums in unapproved_upload_bugs.items():
         for bug_num in bug_nums:
-            unapproved_cache[(bug_num, pkg)] = True
+            unapproved_bugfixes.add((bug_num, pkg))
 
     triage = LaunchpadTriage(
         tasks=lp_tasks,
@@ -310,7 +311,7 @@ async def find(
         team_config=team_config,
         config=config.general,
         mode=mode,
-        unapproved_cache=unapproved_cache,
+        unapproved_bug_fixes=unapproved_bugfixes,
     )
     logger.info("Launchpad: done.")
     return triage
