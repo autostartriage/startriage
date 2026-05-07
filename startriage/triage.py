@@ -103,7 +103,7 @@ async def run_triage(
         if range:
             buf.write(f"# Triage of changes on{range}\n")
         else:
-            buf.write(f"# Triage\n")
+            buf.write("# Triage\n")
 
         md_cfg = OutputConfig(fmt=OutputFormat.MARKDOWN, out=buf, open_in_browser=False, terminal_links=False)
 
