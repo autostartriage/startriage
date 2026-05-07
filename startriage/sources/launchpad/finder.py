@@ -227,7 +227,6 @@ def fetch_bugs(
                 (t.bug_link, _fast_target_name(t)): t
                 for t in _search_tasks_all_series(
                     ubuntu,
-                    bug_subscriber=team,
                     tags=[team_config.lp_todo_tag, "-bot-stop-nagging"],
                     tags_combinator="All",
                     status=TRACKED_BUG_STATUSES,
