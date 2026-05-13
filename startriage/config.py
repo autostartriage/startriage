@@ -72,10 +72,20 @@ class TeamConfig(BaseModel):
         return [GithubRepoConfig.from_str_or_dict(item) for item in v]
 
 
+class AIConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = "openrouter"
+    model: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
+
+
 class StarTriageConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     general: GeneralConfig = GeneralConfig()
+    ai: AIConfig = AIConfig()
     team: dict[str, TeamConfig] = {}
     loaded_paths: list[Path] = []
 
@@ -91,6 +101,9 @@ class StarTriageConfig(BaseModel):
         data: dict = {"general": {}, "team": {}}
         for field, value in self.general.model_dump(exclude_none=True).items():
             data["general"][field] = value
+        ai_data = self.ai.model_dump(exclude_none=True)
+        if ai_data:
+            data["ai"] = ai_data
         for team_name, team in self.team.items():
             data["team"][team_name] = team.model_dump(exclude_none=True)
 
@@ -150,8 +163,11 @@ def load_config(user_config_path: Path | None) -> StarTriageConfig:
         name: {**default_teams.get(name, {}), **user_teams.get(name, {})} for name in all_team_names
     }
 
+    # Merge ai section
+    merged_ai = {**defaults.get("ai", {}), **user.get("ai", {})}
+
     return StarTriageConfig.model_validate(
-        {"general": merged_general, "team": merged_teams, "loaded_paths": loaded_paths}
+        {"general": merged_general, "ai": merged_ai, "team": merged_teams, "loaded_paths": loaded_paths}
     )
 
 

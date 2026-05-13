@@ -132,13 +132,37 @@ GREEN = done
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
+    # --- AI options (shared parent for triage --auto and autotriage) ---
+    ai_p = argparse.ArgumentParser(add_help=False)
+    ai_p.add_argument(
+        "--ai-provider",
+        metavar="NAME",
+        help="AI provider: openrouter, copilot, openai (default: config or openrouter)",
+    )
+    ai_p.add_argument(
+        "--ai-model",
+        metavar="MODEL",
+        help="AI model identifier (default: provider-specific)",
+    )
+    ai_p.add_argument(
+        "--ai-key",
+        metavar="KEY",
+        help="API key for the AI provider (default: from env var)",
+    )
+    ai_p.add_argument(
+        "--autotriage-output",
+        metavar="PATH",
+        dest="autotriage_output",
+        help="Autotriage output file path (default: autotriage-YYYY-MM-DD.md)",
+    )
+
     sp = parser.add_subparsers(required=True, metavar="COMMAND")
 
     # --- triage ---
     triage_p = sp.add_parser(
         "triage",
         help="Daily triage",
-        parents=[output_p, taskfilter_p, list_p],
+        parents=[output_p, taskfilter_p, list_p, ai_p],
     )
     triage_p.add_argument("--no-expiration", action="store_true", help="Skip expiring bugs subsection")
     triage_p.add_argument(
@@ -169,6 +193,11 @@ GREEN = done
         type=int,
         metavar="DAYS",
         help="Minimum days of being stuck in proposed to be included in triage",
+    )
+    triage_p.add_argument(
+        "--auto",
+        action="store_true",
+        help="After collecting triage data, use an AI agent to triage Launchpad bugs",
     )
     triage_p.set_defaults(func=_run_triage)
 
@@ -207,6 +236,19 @@ GREEN = done
 
     config_show_p = config_sp.add_parser("show", help="Display resolved configuration")
     config_show_p.set_defaults(func=_show_config)
+
+    # --- autotriage ---
+    autotriage_p = sp.add_parser(
+        "autotriage",
+        help="AI-assisted triage of a specific Launchpad bug",
+        parents=[ai_p],
+    )
+    autotriage_p.add_argument(
+        "bug_number",
+        metavar="BUGNUMBER",
+        help="Launchpad bug number to triage",
+    )
+    autotriage_p.set_defaults(func=_run_autotriage)
 
     return parser
 
@@ -299,7 +341,10 @@ async def _run_triage(args: argparse.Namespace, config: StarTriageConfig) -> Non
     config.general = general
 
     output_cfg = _outputcfg_from_args(args)
-    await run_triage(config, filter, output_cfg)
+    results = await run_triage(config, filter, output_cfg)
+
+    if args.auto:
+        await _autotriage_from_results(args, config, results)
 
 
 async def _run_todo(args: argparse.Namespace, config: StarTriageConfig) -> None:
@@ -362,3 +407,63 @@ async def _set_config_settings(args: argparse.Namespace, _config: StarTriageConf
 
 async def _show_config(args: argparse.Namespace, config: StarTriageConfig) -> None:
     print(config.show())
+
+
+def _build_ai_provider(args: argparse.Namespace, config: StarTriageConfig):
+    """Create an AI provider from CLI args + config."""
+    from .ai import get_provider
+
+    provider_name = getattr(args, "ai_provider", None) or config.ai.provider
+    model = getattr(args, "ai_model", None) or config.ai.model
+    api_key = getattr(args, "ai_key", None) or config.ai.api_key
+    base_url = config.ai.base_url
+
+    return get_provider(provider_name, model=model, api_key=api_key, base_url=base_url)
+
+
+async def _autotriage_from_results(
+    args: argparse.Namespace,
+    config: StarTriageConfig,
+    results: list,
+) -> None:
+    """Extract LP bugs from triage results and run AI autotriage on them."""
+    from .autotriage import bug_info_from_lp_task, run_autotriage
+
+    provider = _build_ai_provider(args, config)
+
+    # Collect unique LP bugs from the triage results
+    bugs = []
+    seen: set[str] = set()
+    for source_name, result in results:
+        if source_name != "launchpad":
+            continue
+        if not hasattr(result, "tasks"):
+            continue
+        for task in result.tasks.tasks:
+            if task.number not in seen:
+                seen.add(task.number)
+                bugs.append(bug_info_from_lp_task(task))
+
+    if not bugs:
+        print("No Launchpad bugs found to autotriage.")
+        return
+
+    print(f"\nStarting AI autotriage for {len(bugs)} Launchpad bug(s)...")
+    output_path = Path(args.autotriage_output) if getattr(args, "autotriage_output", None) else None
+    await run_autotriage(bugs, provider, output_path)
+
+
+async def _run_autotriage(args: argparse.Namespace, config: StarTriageConfig) -> None:
+    """Handle 'startriage autotriage <bugnumber>' command."""
+    from .autotriage import bug_info_from_lp_bug, run_autotriage
+    from .sources.launchpad.finder import connect_launchpad
+
+    provider = _build_ai_provider(args, config)
+
+    print(f"Fetching LP #{args.bug_number} from Launchpad...")
+    lp = connect_launchpad()
+    bug = bug_info_from_lp_bug(lp, args.bug_number)
+
+    print(f"Starting AI autotriage for LP #{bug.number} ({bug.source_package})...")
+    output_path = Path(args.autotriage_output) if getattr(args, "autotriage_output", None) else None
+    await run_autotriage([bug], provider, output_path)
