@@ -15,10 +15,10 @@ Check the following criteria:
 - Does it describe a specific fault, error, or incorrect behavior?
 
 For feature requests are valid but need to be flagged so, and does not need to be triaged further once it makes sense. To validate a feature request, consider:
-Is it available on a new version?
-Does it exist already or needs to be implemented?
-Is it suitable for upstreaming?
-Just a simple flag change or bigger effort?
+- Is it available on a new version?
+- Does it exist already or needs to be implemented?
+- Is it suitable for upstreaming?
+- Just a simple flag change or bigger effort?
 
 If validation fails:
 - Missing information (no package, no version, no reproduction steps) → recommend status **Incomplete**. Specify what information is needed.
