@@ -1,0 +1,8 @@
+name: startriage
+base: ubuntu@26.04
+sdks:
+  - name: opencode
+    channel: latest/stable
+
+actions:
+  opencode: opencode "$@"
