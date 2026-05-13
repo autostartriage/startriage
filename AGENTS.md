@@ -54,7 +54,7 @@ If it does not, still give us the references so we may use it as part of the fin
 ### 3. Search Upstream
 
 
-- Check the package cache file (located at `TODO: INSERT CACHE FILE PATH`) for the upstream repository URL, homepage, and bug tracker.
+- Check the package cache file (located at `./packages.cache`) for the upstream repository URL, homepage, and bug tracker.
 - Search the upstream bug tracker and/or git repository for matching issues or commits.
 - If the upstream project uses GitHub, GitLab, or similar, search the issues and recent commits.
 
@@ -144,10 +144,10 @@ When recommending a status change, use one of these:
 
 
 ### Package cache
-You have access to a package metadata cache located at: `TODO: INSERT PATH TO CACHE FILE`
+You have access to a package metadata cache located at: `./package.cache`
 
 
-The cache provides per-package metadata following the schema defined in `TODO: INSERT PATH TO cache_schema.json`. Fields include (at minimum): source package name, upstream repository URL, upstream bug tracker URL, Debian tracker URL, homepage.
+The cache provides per-package metadata following the YAML schema defined in `./cache_schema.json`. Fields include (at minimum): source package name, upstream repository URL, upstream bug tracker URL, Debian tracker URL, homepage.
 
 ### Special cases to be aware of
 Certain packages have known triaging patterns (from the handbook):
@@ -265,4 +265,4 @@ If during triage you needed package metadata that was:
 - Present but contained broken links or incorrect information,
 
 
-Then create a file called `cache-updates.diff` with an applicable diff to the cache file. The diff must conform to the schema defined in `TODO: INSERT PATH TO cache_schema.json`.
+Then create a file called `cache-updates.diff` with an applicable diff to the cache file. The diff must conform to the schema defined in `./cache_schema.json`.
