@@ -17,11 +17,7 @@
       "fedora": { "$ref": "#/definitions/distro_info" },
       "debian": { "$ref": "#/definitions/distro_info" }
     },
-<<<<<<< HEAD
-    "required": ["upstream", "fedora", "debian"],
-=======
     "required": [],
->>>>>>> 0daa1ac (add schema for cache)
     "additionalProperties": { "$ref": "#/definitions/distro_info" }
   },
   "definitions": {
