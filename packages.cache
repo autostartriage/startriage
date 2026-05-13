@@ -1,0 +1,77 @@
+{
+  "squid": {
+    "upstream": {
+      "url": "http://www.squid-cache.org/",
+      "bug_tracker": "https://bugs.squid-cache.org/",
+      "vcs": "https://github.com/squid-cache/squid"
+    },
+    "debian": {
+      "source_package": "squid",
+      "bug_tracker": "https://bugs.debian.org/cgi-bin/pkgreport.cgi?repeatmerged=no&src=squid"
+    },
+    "fedora": {
+      "source_package": "squid",
+      "bug_tracker": "https://bugzilla.redhat.com/buglist.cgi?component=squid&product=Fedora"
+    }
+  },
+  "edk2": {
+    "upstream": {
+      "url": "http://www.tianocore.org/",
+      "bug_tracker": "https://bugzilla.tianocore.org/",
+      "vcs": "https://github.com/tianocore/edk2"
+    },
+    "debian": {
+      "source_package": "edk2",
+      "bug_tracker": "https://bugs.debian.org/cgi-bin/pkgreport.cgi?repeatmerged=no&src=edk2"
+    },
+    "fedora": {
+      "source_package": "edk2",
+      "bug_tracker": "https://bugzilla.redhat.com/buglist.cgi?component=edk2&product=Fedora"
+    }
+  },
+  "php8.5": {
+    "upstream": {
+      "url": "https://www.php.net/",
+      "bug_tracker": "https://github.com/php/php-src/issues",
+      "vcs": "https://github.com/php/php-src"
+    },
+    "debian": {
+      "source_package": null,
+      "bug_tracker": null
+    },
+    "fedora": {
+      "source_package": "php",
+      "bug_tracker": "https://bugzilla.redhat.com/buglist.cgi?component=php&product=Fedora"
+    }
+  },
+  "pcs": {
+    "upstream": {
+      "url": "https://github.com/ClusterLabs/pcs",
+      "bug_tracker": "https://github.com/ClusterLabs/pcs/issues",
+      "vcs": "https://github.com/ClusterLabs/pcs"
+    },
+    "debian": {
+      "source_package": "pcs",
+      "bug_tracker": "https://bugs.debian.org/cgi-bin/pkgreport.cgi?repeatmerged=no&src=pcs"
+    },
+    "fedora": {
+      "source_package": "pcs",
+      "bug_tracker": "https://bugzilla.redhat.com/buglist.cgi?component=pcs&product=Fedora"
+    }
+  },
+  "frr": {
+    "upstream": {
+      "url": "https://frrouting.org/",
+      "bug_tracker": "https://github.com/FRRouting/frr/issues",
+      "vcs": "https://github.com/FRRouting/frr"
+    },
+    "debian": {
+      "source_package": "frr",
+      "bug_tracker": "https://bugs.debian.org/cgi-bin/pkgreport.cgi?repeatmerged=no&src=frr"
+    },
+    "fedora": {
+      "source_package": "frr",
+      "bug_tracker": "https://bugzilla.redhat.com/buglist.cgi?component=frr&product=Fedora"
+    }
+  }
+}
