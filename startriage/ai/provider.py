@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from abc import ABC, abstractmethod
 
 import aiohttp
@@ -156,6 +157,28 @@ _PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
 }
 
 
+def _gh_auth_token_fallback(env_key: str) -> str:
+    """Try to get a token from 'gh auth token' if the env var is GITHUB_TOKEN."""
+    if env_key != "GITHUB_TOKEN":
+        return ""
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode == 0:
+            token = result.stdout.strip()
+            if token:
+                logger.debug("Using token from 'gh auth token'")
+                return token
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return ""
+
+
 def get_provider(
     provider_name: str,
     model: str | None = None,
@@ -175,11 +198,13 @@ def get_provider(
             f"Unknown AI provider {provider_name!r}. Available: {available}"
         )
 
-    resolved_key = api_key or os.environ.get(defaults["env_key"], "")
+    env_key = defaults["env_key"]
+    resolved_key = api_key or os.environ.get(env_key, "") or _gh_auth_token_fallback(env_key)
     if not resolved_key:
         raise ValueError(
             f"No API key for provider {provider_name!r}. "
-            f"Set the {defaults['env_key']} environment variable or "
+            f"Set the {env_key} environment variable, "
+            f"log in with 'gh auth login', or "
             f"configure ai.api_key in your startriage config."
         )
 
