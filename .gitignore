@@ -15,3 +15,4 @@ build/
 dist/
 snap/.snapcraft
 .workshop.lock
+autotriage-*.md
