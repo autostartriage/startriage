@@ -9,7 +9,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-from .ai import AIProvider
+from .ai import AIProvider, UnknownModelError
 from .spinner import Spinner
 
 logger = logging.getLogger(__name__)
@@ -183,6 +183,8 @@ async def run_autotriage(
                 user_prompt = _format_bug(bug)
                 response = await provider.complete(system_prompt, user_prompt)
                 sections.append(response)
+            except UnknownModelError:
+                raise
             except Exception as exc:
                 logger.error("AI triage failed for LP #%s: %s", bug.number, exc)
                 sections.append(

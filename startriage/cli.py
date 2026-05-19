@@ -150,6 +150,12 @@ GREEN = done
         help="API key for the AI provider (default: from env var)",
     )
     ai_p.add_argument(
+        "--ai-max-tokens",
+        metavar="N",
+        type=int,
+        help="Maximum output tokens for the AI model (default: 16384)",
+    )
+    ai_p.add_argument(
         "--autotriage-output",
         metavar="PATH",
         dest="autotriage_output",
@@ -417,8 +423,9 @@ def _build_ai_provider(args: argparse.Namespace, config: StarTriageConfig):
     model = getattr(args, "ai_model", None) or config.ai.model
     api_key = getattr(args, "ai_key", None) or config.ai.api_key
     base_url = config.ai.base_url
+    max_tokens = getattr(args, "ai_max_tokens", None) or config.ai.max_tokens
 
-    return get_provider(provider_name, model=model, api_key=api_key, base_url=base_url)
+    return get_provider(provider_name, model=model, api_key=api_key, base_url=base_url, max_tokens=max_tokens)
 
 
 async def _autotriage_from_results(

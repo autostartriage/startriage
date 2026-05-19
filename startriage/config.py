@@ -79,6 +79,7 @@ class AIConfig(BaseModel):
     model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
+    max_tokens: int | None = None
 
 
 class StarTriageConfig(BaseModel):
