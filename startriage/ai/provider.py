@@ -145,7 +145,7 @@ _PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "copilot": {
         "base_url": "https://models.github.ai/inference",
-        "model": "anthropic/claude-sonnet-4",
+        "model": "openai/gpt-4.1",
         "env_key": "GITHUB_TOKEN",
     },
     "openai": {
