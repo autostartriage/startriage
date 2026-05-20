@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .ai import AIProvider, UnknownModelError
+from .retry import lp_retry
 from .spinner import Spinner
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ def _format_bug(bug: BugInfo) -> str:
     return "\n".join(lines)
 
 
+@lp_retry()
 def bug_info_from_lp_task(task: Any) -> BugInfo:
     """Extract BugInfo from a startriage launchpad Task object."""
     bug = task.lp_task.bug
@@ -104,6 +106,7 @@ def bug_info_from_lp_task(task: Any) -> BugInfo:
     )
 
 
+@lp_retry()
 def bug_info_from_lp_bug(lp: Any, bug_number: str) -> BugInfo:
     """Fetch a bug directly from Launchpad by number and build BugInfo."""
     bug = lp.bugs[int(bug_number)]

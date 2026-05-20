@@ -17,6 +17,7 @@ from startriage.source import TaskFilterOptions
 
 from ...config import TeamConfig
 from ...enums import FetchMode
+from ...retry import lp_retry
 from .models import LaunchpadTasks, Task
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ PACKAGING_TASK_TAGS = [
 ]
 
 
+@lp_retry()
 def connect_launchpad() -> Launchpad:
     cred_dir = platformdirs.user_data_path("startriage")
     cred_dir.mkdir(parents=True, exist_ok=True)
@@ -158,17 +160,45 @@ async def fetch_changelogs(
     logger.debug("fetching changes %d changelogs", len(changes_urls))
 
     async def _bugs_for_upload(pkg: str, url: str) -> tuple[str, list[str]]:
-        try:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    return pkg, []
-                text = await resp.text()
-                changes = debian.deb822.Changes(text)
-                bugs_str = changes.get("Launchpad-Bugs-Fixed", "")
-                return pkg, bugs_str.split()
-        except Exception as exc:
-            logger.debug("Error fetching changes %s: %s", url, exc)
-            return pkg, []
+        delay = 5.0
+        for attempt in range(1, 4):
+            try:
+                async with session.get(url) as resp:
+                    if resp.status in (502, 503, 504):
+                        if attempt < 3:
+                            logger.warning(
+                                "LP librarian returned %d for %s, retrying in %.0fs...",
+                                resp.status,
+                                url,
+                                delay,
+                            )
+                            await asyncio.sleep(delay)
+                            delay *= 2
+                            continue
+                        return pkg, []
+                    if resp.status != 200:
+                        return pkg, []
+                    text = await resp.text()
+                    changes = debian.deb822.Changes(text)
+                    bugs_str = changes.get("Launchpad-Bugs-Fixed", "")
+                    return pkg, bugs_str.split()
+            except (ConnectionError, TimeoutError, OSError) as exc:
+                if attempt < 3:
+                    logger.warning(
+                        "Network error fetching %s (%s), retrying in %.0fs...",
+                        url,
+                        exc,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                    continue
+                logger.debug("Error fetching changes %s: %s", url, exc)
+                return pkg, []
+            except Exception as exc:
+                logger.debug("Error fetching changes %s: %s", url, exc)
+                return pkg, []
+        return pkg, []
 
     results = await asyncio.gather(*[_bugs_for_upload(pkg, url) for pkg, url in changes_urls])
     pkg_bugs: dict[str, set[str]] = {}
@@ -178,6 +208,7 @@ async def fetch_changelogs(
     return pkg_bugs
 
 
+@lp_retry()
 def fetch_bugs(
     lp: Launchpad,
     team_config: TeamConfig,
