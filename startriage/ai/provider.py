@@ -20,9 +20,7 @@ class UnknownModelError(Exception):
         self.model = model
         self.available = available
         models_list = "\n  ".join(available) if available else "(could not retrieve model list)"
-        super().__init__(
-            f"Unknown model: {model!r}\n\nAvailable models:\n  {models_list}"
-        )
+        super().__init__(f"Unknown model: {model!r}\n\nAvailable models:\n  {models_list}")
 
 
 class AIProvider(ABC):
@@ -77,9 +75,7 @@ class OpenAICompatibleProvider(AIProvider):
                     if self._is_unknown_model_error(body):
                         available = await self._fetch_available_models(headers)
                         raise UnknownModelError(self.model, available)
-                    raise RuntimeError(
-                        f"AI API returned {resp.status}: {body[:500]}"
-                    )
+                    raise RuntimeError(f"AI API returned {resp.status}: {body[:500]}")
                 data = await resp.json()
                 return data["choices"][0]["message"]["content"]
 
@@ -93,30 +89,13 @@ class OpenAICompatibleProvider(AIProvider):
             return False
 
     async def _fetch_available_models(self, headers: dict[str, str]) -> list[str]:
-        """Query the model catalog endpoint to get available model names."""
-        # GitHub Models uses /catalog/models on the base domain, not relative to base_url.
-        # For other providers, fall back to {base_url}/models.
-        from urllib.parse import urlparse
-
-        parsed = urlparse(self.base_url)
-        catalog_url = f"{parsed.scheme}://{parsed.netloc}/catalog/models"
-        fallback_url = f"{self.base_url}/models"
+        """Query the models endpoint to get available model names."""
+        models_url = f"{self.base_url}/models"
 
         try:
             async with aiohttp.ClientSession() as session:
-                # Try catalog endpoint first (GitHub Models)
                 async with session.get(
-                    catalog_url,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=30),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return self._extract_model_ids(data)
-
-                # Fall back to standard /models endpoint (OpenAI-compatible)
-                async with session.get(
-                    fallback_url,
+                    models_url,
                     headers=headers,
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as resp:
@@ -145,8 +124,8 @@ _PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
         "env_key": "OPENROUTER_API_KEY",
     },
     "copilot": {
-        "base_url": "https://models.github.ai/inference",
-        "model": "openai/gpt-4.1",
+        "base_url": "https://api.githubcopilot.com",
+        "model": "claude-opus-4.6",
         "env_key": "GITHUB_TOKEN",
     },
     "openai": {
@@ -194,9 +173,7 @@ def get_provider(
     defaults = _PROVIDER_DEFAULTS.get(provider_name)
     if defaults is None:
         available = ", ".join(sorted(_PROVIDER_DEFAULTS))
-        raise ValueError(
-            f"Unknown AI provider {provider_name!r}. Available: {available}"
-        )
+        raise ValueError(f"Unknown AI provider {provider_name!r}. Available: {available}")
 
     env_key = defaults["env_key"]
     resolved_key = api_key or os.environ.get(env_key, "") or _gh_auth_token_fallback(env_key)
@@ -215,9 +192,6 @@ def get_provider(
     if provider_name == "openrouter":
         extra_headers["HTTP-Referer"] = "https://github.com/ubuntu/startriage"
         extra_headers["X-Title"] = "startriage"
-    elif provider_name == "copilot":
-        extra_headers["Accept"] = "application/vnd.github+json"
-        extra_headers["X-GitHub-Api-Version"] = "2026-03-10"
 
     resolved_max_tokens = max_tokens or 16384
 
